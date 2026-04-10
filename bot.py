@@ -10,8 +10,8 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
- 
-BOT_TOKEN = "8651166761:AAHeBDZL03i9K8Zae-Je0GZLJeWY3_2MxeE"
+import os 
+BOT_TOKEN = os.environ.get ("BOT_TOKEN", "8651166761:AAHeBDZL03i9K8Zae-Je0GZLJeWY3_2MxeE")
 DB_PATH = "music_bot.db"
  
 logging.basicConfig(
