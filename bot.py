@@ -17,7 +17,7 @@ from telegram.ext import (
 # SOZLAMALAR
 # ========================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8651166761:AAHeBDZL03i9K8Zae-Je0GZLJeWY3_2MxeE")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://music-bot-10-6uiq.onrender.com")
 DB_PATH = "music_bot.db"
 
 logging.basicConfig(
