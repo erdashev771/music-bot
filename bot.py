@@ -19,7 +19,6 @@ from telegram.ext import (
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8651166761:AAHeBDZL03i9K8Zae-Je0GZLJeWY3_2MxeE")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
 DB_PATH = "music_bot.db"
-PORT = int(os.environ.get("PORT", 8000))
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -28,6 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 ptb_app = Application.builder().token(BOT_TOKEN).build()
+webhook_set = False  # bir marta o'rnatish uchun
 
 
 # ========================
@@ -341,11 +341,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ========================
-# LIFESPAN — yangi usul
+# LIFESPAN
 # ========================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup — faqat DB va handlerlar, webhook YO'Q
     init_db()
     logger.info("Ma'lumotlar bazasi tayyor.")
 
@@ -360,12 +360,7 @@ async def lifespan(app: FastAPI):
 
     await ptb_app.initialize()
     await ptb_app.start()
-
-    await ptb_app.bot.set_webhook(
-        url=f"{WEBHOOK_URL}/webhook",
-        allowed_updates=Update.ALL_TYPES
-    )
-    logger.info(f"Webhook o'rnatildi: {WEBHOOK_URL}/webhook")
+    logger.info("Bot ishga tushdi.")
 
     yield
 
@@ -384,6 +379,21 @@ fastapi_app = FastAPI(lifespan=lifespan)
 @fastapi_app.get("/")
 async def root():
     return {"status": "Bot ishlayapti!"}
+
+
+@fastapi_app.get("/set_webhook")
+async def set_webhook():
+    """Deploy tugagandan keyin bir marta shu URLga kiring"""
+    global webhook_set
+    if not WEBHOOK_URL:
+        return {"error": "WEBHOOK_URL environment variable yo'q!"}
+    await ptb_app.bot.set_webhook(
+        url=f"{WEBHOOK_URL}/webhook",
+        allowed_updates=Update.ALL_TYPES
+    )
+    webhook_set = True
+    logger.info(f"Webhook o'rnatildi: {WEBHOOK_URL}/webhook")
+    return {"ok": True, "webhook": f"{WEBHOOK_URL}/webhook"}
 
 
 @fastapi_app.post("/webhook")
