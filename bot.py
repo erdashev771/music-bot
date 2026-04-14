@@ -1,8 +1,9 @@
 import logging
 import sqlite3
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -16,7 +17,7 @@ from telegram.ext import (
 # SOZLAMALAR
 # ========================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8651166761:AAHeBDZL03i9K8Zae-Je0GZLJeWY3_2MxeE")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")  # masalan: https://sizning-domain.com
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
 DB_PATH = "music_bot.db"
 PORT = int(os.environ.get("PORT", 8000))
 
@@ -26,8 +27,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# FastAPI va PTB Application
-fastapi_app = FastAPI()
 ptb_app = Application.builder().token(BOT_TOKEN).build()
 
 
@@ -342,14 +341,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ========================
-# FASTAPI ROUTES
+# LIFESPAN — yangi usul
 # ========================
-@fastapi_app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     init_db()
     logger.info("Ma'lumotlar bazasi tayyor.")
 
-    # Handlerlani qo'shish
     ptb_app.add_handler(CommandHandler("start", start))
     ptb_app.add_handler(CommandHandler("help", help_command))
     ptb_app.add_handler(CommandHandler("list", list_command))
@@ -362,18 +361,24 @@ async def startup():
     await ptb_app.initialize()
     await ptb_app.start()
 
-    # Webhook o'rnatish
     await ptb_app.bot.set_webhook(
         url=f"{WEBHOOK_URL}/webhook",
         allowed_updates=Update.ALL_TYPES
     )
     logger.info(f"Webhook o'rnatildi: {WEBHOOK_URL}/webhook")
 
+    yield
 
-@fastapi_app.on_event("shutdown")
-async def shutdown():
+    # Shutdown
     await ptb_app.stop()
     await ptb_app.shutdown()
+    logger.info("Bot to'xtatildi.")
+
+
+# ========================
+# FASTAPI APP
+# ========================
+fastapi_app = FastAPI(lifespan=lifespan)
 
 
 @fastapi_app.get("/")
