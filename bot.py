@@ -1,7 +1,8 @@
 import logging
 import sqlite3
-import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import os
+from fastapi import FastAPI, Request
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -10,17 +11,29 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-import os 
-BOT_TOKEN = os.environ.get ("BOT_TOKEN", "8651166761:AAHeBDZL03i9K8Zae-Je0GZLJeWY3_2MxeE")
+
+# ========================
+# SOZLAMALAR
+# ========================
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")  # masalan: https://sizning-domain.com
 DB_PATH = "music_bot.db"
- 
+PORT = int(os.environ.get("PORT", 8000))
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
- 
- 
+
+# FastAPI va PTB Application
+fastapi_app = FastAPI()
+ptb_app = Application.builder().token(BOT_TOKEN).build()
+
+
+# ========================
+# MA'LUMOTLAR BAZASI
+# ========================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -38,8 +51,8 @@ def init_db():
     """)
     conn.commit()
     conn.close()
- 
- 
+
+
 def save_music(user_id, file_id, file_unique_id, title, artist, duration):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -52,8 +65,8 @@ def save_music(user_id, file_id, file_unique_id, title, artist, duration):
         return c.lastrowid if c.lastrowid else None
     finally:
         conn.close()
- 
- 
+
+
 def get_user_musics(user_id, search=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -74,8 +87,8 @@ def get_user_musics(user_id, search=None):
     rows = c.fetchall()
     conn.close()
     return rows
- 
- 
+
+
 def delete_music(music_id, user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -84,8 +97,8 @@ def delete_music(music_id, user_id):
     conn.commit()
     conn.close()
     return deleted > 0
- 
- 
+
+
 def get_music_count(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -93,27 +106,30 @@ def get_music_count(user_id):
     count = c.fetchone()[0]
     conn.close()
     return count
- 
- 
+
+
+# ========================
+# YORDAMCHI FUNKSIYALAR
+# ========================
 def format_duration(seconds):
     if not seconds:
         return "?"
     m, s = divmod(seconds, 60)
     return f"{m}:{s:02d}"
- 
- 
+
+
 def music_list_keyboard(musics, page=0, search=None):
     per_page = 8
     start = page * per_page
     end = start + per_page
     page_musics = musics[start:end]
- 
+
     keyboard = []
     for music in page_musics:
         mid, file_id, title, artist, duration = music
         label = f"🎵 {title[:20]} — {artist[:15]} ({format_duration(duration)})"
         keyboard.append([InlineKeyboardButton(label, callback_data=f"play:{mid}")])
- 
+
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"page:{page-1}:{search or ''}"))
@@ -121,10 +137,13 @@ def music_list_keyboard(musics, page=0, search=None):
         nav.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"page:{page+1}:{search or ''}"))
     if nav:
         keyboard.append(nav)
- 
+
     return InlineKeyboardMarkup(keyboard)
- 
- 
+
+
+# ========================
+# HANDLERLAR
+# ========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = (
@@ -142,8 +161,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "▶️ Boshlash uchun menga audio fayl yuboring!"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
- 
- 
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🆘 *Yordam*\n\n"
@@ -159,8 +178,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/stats — nechta musiqa saqlangani"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
- 
- 
+
+
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     count = get_music_count(user_id)
@@ -169,38 +188,38 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎵 Saqlangan musiqalar: *{count} ta*",
         parse_mode="Markdown"
     )
- 
- 
+
+
 async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     musics = get_user_musics(user_id)
- 
+
     if not musics:
         await update.message.reply_text(
             "📭 Sizda hali musiqa yo'q.\n\nMenga audio fayl yuboring — saqlashni boshlaymiz! 🎵"
         )
         return
- 
+
     keyboard = music_list_keyboard(musics, page=0)
     await update.message.reply_text(
         f"🎵 *Musiqa kutubxonangiz* ({len(musics)} ta)\n\nTinglash uchun tanlang:",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
- 
- 
+
+
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
- 
+
     if not context.args:
         await update.message.reply_text(
             "🔍 Qidiruv uchun:\n/search <musiqa nomi>\n\nMasalan: /search Shahlo"
         )
         return
- 
+
     query = " ".join(context.args)
     musics = get_user_musics(user_id, search=query)
- 
+
     if not musics:
         await update.message.reply_text(
             f"❌ *\"{query}\"* bo'yicha hech narsa topilmadi.\n\n"
@@ -208,31 +227,31 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
- 
+
     keyboard = music_list_keyboard(musics, page=0, search=query)
     await update.message.reply_text(
         f"🔍 *\"{query}\"* bo'yicha {len(musics)} ta natija:",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
- 
- 
+
+
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     audio = update.message.audio
- 
+
     if not audio:
         await update.message.reply_text("⚠️ Iltimos, audio fayl yuboring.")
         return
- 
+
     file_id = audio.file_id
     file_unique_id = audio.file_unique_id
     title = audio.title or (audio.file_name or "").replace(".mp3", "").replace(".m4a", "") or "Nomsiz"
     artist = audio.performer or "Noma'lum"
     duration = audio.duration
- 
+
     result = save_music(user_id, file_id, file_unique_id, title, artist, duration)
- 
+
     if result:
         await update.message.reply_text(
             f"✅ *Saqlandi!*\n\n"
@@ -246,14 +265,14 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "ℹ️ Bu musiqa allaqachon saqlangan!\n\n📋 /list"
         )
- 
- 
+
+
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     data = query.data
- 
+
     if data.startswith("play:"):
         music_id = int(data.split(":")[1])
         conn = sqlite3.connect(DB_PATH)
@@ -262,11 +281,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                   (music_id, user_id))
         row = c.fetchone()
         conn.close()
- 
+
         if not row:
             await query.message.reply_text("❌ Musiqa topilmadi.")
             return
- 
+
         file_id, title, artist, duration = row
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🗑️ O'chirish", callback_data=f"delete:{music_id}"),
@@ -278,22 +297,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
- 
+
     elif data.startswith("page:"):
         parts = data.split(":", 2)
         page = int(parts[1])
         search = parts[2] if len(parts) > 2 and parts[2] else None
- 
         musics = get_user_musics(user_id, search=search)
         keyboard = music_list_keyboard(musics, page=page, search=search)
- 
         title_text = f"🔍 \"{search}\" — {len(musics)} ta" if search else f"🎵 Musiqa kutubxonangiz ({len(musics)} ta)"
         await query.edit_message_text(
             f"{title_text}\n\nTinglash uchun tanlang:",
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
- 
+
     elif data.startswith("delete:"):
         music_id = int(data.split(":")[1])
         success = delete_music(music_id, user_id)
@@ -301,7 +318,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("🗑️ Musiqa o'chirildi!")
         else:
             await query.message.reply_text("❌ O'chirishda xatolik.")
- 
+
     elif data == "back_to_list":
         musics = get_user_musics(user_id)
         if not musics:
@@ -313,8 +330,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
- 
- 
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎵 Musiqa saqlash uchun audio fayl yuboring.\n\n"
@@ -322,31 +339,51 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔍 Qidirish: /search <nom>\n"
         "🆘 Yordam: /help"
     )
- 
- 
-async def main():
+
+
+# ========================
+# FASTAPI ROUTES
+# ========================
+@fastapi_app.on_event("startup")
+async def startup():
     init_db()
     logger.info("Ma'lumotlar bazasi tayyor.")
- 
-    app = Application.builder().token(BOT_TOKEN).build()
- 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("list", list_command))
-    app.add_handler(CommandHandler("search", search_command))
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
-    app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
- 
-    logger.info("Bot ishga tushdi...")
- 
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
- 
-    await asyncio.Event().wait()
- 
- 
-if __name__ == "__main__":
-    asyncio.run(main())
+
+    # Handlerlani qo'shish
+    ptb_app.add_handler(CommandHandler("start", start))
+    ptb_app.add_handler(CommandHandler("help", help_command))
+    ptb_app.add_handler(CommandHandler("list", list_command))
+    ptb_app.add_handler(CommandHandler("search", search_command))
+    ptb_app.add_handler(CommandHandler("stats", stats_command))
+    ptb_app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
+    ptb_app.add_handler(CallbackQueryHandler(button_callback))
+    ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+    await ptb_app.initialize()
+    await ptb_app.start()
+
+    # Webhook o'rnatish
+    await ptb_app.bot.set_webhook(
+        url=f"{WEBHOOK_URL}/webhook",
+        allowed_updates=Update.ALL_TYPES
+    )
+    logger.info(f"Webhook o'rnatildi: {WEBHOOK_URL}/webhook")
+
+
+@fastapi_app.on_event("shutdown")
+async def shutdown():
+    await ptb_app.stop()
+    await ptb_app.shutdown()
+
+
+@fastapi_app.get("/")
+async def root():
+    return {"status": "Bot ishlayapti!"}
+
+
+@fastapi_app.post("/webhook")
+async def webhook(request: Request):
+    data = await request.json()
+    update = Update.de_json(data, ptb_app.bot)
+    await ptb_app.process_update(update)
+    return {"ok": True}
