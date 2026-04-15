@@ -1,8 +1,6 @@
 import logging
 import sqlite3
-import os
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -16,15 +14,7 @@ from telegram.ext import (
 # ========================
 # SOZLAMALAR
 # ========================
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-
-BASE_URL = os.environ.get(
-    "WEBHOOK_URL",
-    "https://music-bot-10-6uiq.onrender.com"
-)
-
-WEBHOOK_URL = f"{BASE_URL}/{BOT_TOKEN}"
-
+BOT_TOKEN = "8651166761:AAHeBDZL03i9K8Zae-Je0GZLJeWY3_2MxeE"
 DB_PATH = "music_bot.db"
 
 logging.basicConfig(
@@ -32,9 +22,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-ptb_app = Application.builder().token(BOT_TOKEN).build()
-webhook_set = False  # bir marta o'rnatish uchun
 
 
 # ========================
@@ -114,9 +101,6 @@ def get_music_count(user_id):
     return count
 
 
-# ========================
-# YORDAMCHI FUNKSIYALAR
-# ========================
 def format_duration(seconds):
     if not seconds:
         return "?"
@@ -147,9 +131,6 @@ def music_list_keyboard(musics, page=0, search=None):
     return InlineKeyboardMarkup(keyboard)
 
 
-# ========================
-# HANDLERLAR
-# ========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = (
@@ -199,13 +180,11 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     musics = get_user_musics(user_id)
-
     if not musics:
         await update.message.reply_text(
             "📭 Sizda hali musiqa yo'q.\n\nMenga audio fayl yuboring — saqlashni boshlaymiz! 🎵"
         )
         return
-
     keyboard = music_list_keyboard(musics, page=0)
     await update.message.reply_text(
         f"🎵 *Musiqa kutubxonangiz* ({len(musics)} ta)\n\nTinglash uchun tanlang:",
@@ -216,24 +195,19 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-
     if not context.args:
         await update.message.reply_text(
             "🔍 Qidiruv uchun:\n/search <musiqa nomi>\n\nMasalan: /search Shahlo"
         )
         return
-
     query = " ".join(context.args)
     musics = get_user_musics(user_id, search=query)
-
     if not musics:
         await update.message.reply_text(
-            f"❌ *\"{query}\"* bo'yicha hech narsa topilmadi.\n\n"
-            "Boshqa kalit so'z bilan urinib ko'ring.",
+            f"❌ *\"{query}\"* bo'yicha hech narsa topilmadi.",
             parse_mode="Markdown"
         )
         return
-
     keyboard = music_list_keyboard(musics, page=0, search=query)
     await update.message.reply_text(
         f"🔍 *\"{query}\"* bo'yicha {len(musics)} ta natija:",
@@ -245,19 +219,15 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     audio = update.message.audio
-
     if not audio:
         await update.message.reply_text("⚠️ Iltimos, audio fayl yuboring.")
         return
-
     file_id = audio.file_id
     file_unique_id = audio.file_unique_id
     title = audio.title or (audio.file_name or "").replace(".mp3", "").replace(".m4a", "") or "Nomsiz"
     artist = audio.performer or "Noma'lum"
     duration = audio.duration
-
     result = save_music(user_id, file_id, file_unique_id, title, artist, duration)
-
     if result:
         await update.message.reply_text(
             f"✅ *Saqlandi!*\n\n"
@@ -268,9 +238,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text(
-            "ℹ️ Bu musiqa allaqachon saqlangan!\n\n📋 /list"
-        )
+        await update.message.reply_text("ℹ️ Bu musiqa allaqachon saqlangan!\n\n📋 /list")
 
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -287,11 +255,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                   (music_id, user_id))
         row = c.fetchone()
         conn.close()
-
         if not row:
             await query.message.reply_text("❌ Musiqa topilmadi.")
             return
-
         file_id, title, artist, duration = row
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🗑️ O'chirish", callback_data=f"delete:{music_id}"),
@@ -347,65 +313,27 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ========================
-# LIFESPAN
-# ========================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup — faqat DB va handlerlar, webhook YO'Q
+async def main():
     init_db()
     logger.info("Ma'lumotlar bazasi tayyor.")
 
-    ptb_app.add_handler(CommandHandler("start", start))
-    ptb_app.add_handler(CommandHandler("help", help_command))
-    ptb_app.add_handler(CommandHandler("list", list_command))
-    ptb_app.add_handler(CommandHandler("search", search_command))
-    ptb_app.add_handler(CommandHandler("stats", stats_command))
-    ptb_app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
-    ptb_app.add_handler(CallbackQueryHandler(button_callback))
-    ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app = Application.builder().token(BOT_TOKEN).build()
 
-    await ptb_app.initialize()
-    await ptb_app.start()
-    logger.info("Bot ishga tushdi.")
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("list", list_command))
+    app.add_handler(CommandHandler("search", search_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    yield
-
-    # Shutdown
-    await ptb_app.stop()
-    await ptb_app.shutdown()
-    logger.info("Bot to'xtatildi.")
+    logger.info("Bot ishga tushdi...")
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    await asyncio.Event().wait()
 
 
-# ========================
-# FASTAPI APP
-# ========================
-fastapi_app = FastAPI(lifespan=lifespan)
-
-
-@fastapi_app.get("/")
-async def root():
-    return {"status": "Bot ishlayapti!"}
-
-
-@fastapi_app.get("/set_webhook")
-async def set_webhook():
-    """Deploy tugagandan keyin bir marta shu URLga kiring"""
-    global webhook_set
-    if not WEBHOOK_URL:
-        return {"error": "WEBHOOK_URL environment variable yo'q!"}
-    await ptb_app.bot.set_webhook(
-        url=f"{WEBHOOK_URL}/webhook",
-        allowed_updates=Update.ALL_TYPES
-    )
-    webhook_set = True
-    logger.info(f"Webhook o'rnatildi: {WEBHOOK_URL}/webhook")
-    return {"ok": True, "webhook": f"{WEBHOOK_URL}/webhook"}
-
-
-@fastapi_app.post("/webhook")
-async def webhook(request: Request):
-    data = await request.json()
-    update = Update.de_json(data, ptb_app.bot)
-    await ptb_app.process_update(update)
-    return {"ok": True}
+if __name__ == "__main__":
+    asyncio.run(main())
